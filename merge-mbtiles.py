@@ -2,6 +2,7 @@ import os
 import sqlite3
 import sys
 import time
+import glob
 
 
 def merge_mbtiles(inputs, output):
@@ -34,9 +35,13 @@ def merge_mbtiles(inputs, output):
     con = sqlite3.connect(output)
     cur = con.cursor()
 
+    # SPEED: journal_mode=OFF + synchronous=OFF is fastest for bulk insert.
+    # Index is created AFTER all tiles are inserted — building the index
+    # incrementally (row by row into an indexed table) is ~2x slower.
     cur.executescript("""
-        PRAGMA journal_mode = WAL;
+        PRAGMA journal_mode = OFF;
         PRAGMA synchronous  = OFF;
+        PRAGMA cache_size   = -65536;
         CREATE TABLE IF NOT EXISTS metadata (name TEXT, value TEXT);
         CREATE TABLE IF NOT EXISTS tiles (
             zoom_level  INTEGER,
@@ -44,11 +49,9 @@ def merge_mbtiles(inputs, output):
             tile_row    INTEGER,
             tile_data   BLOB
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS tile_index
-            ON tiles (zoom_level, tile_column, tile_row);
     """)
 
-    # --- Collect metadata and tile counts for progress display ---
+    # --- Collect metadata and tile counts ---
     all_min_lon, all_min_lat, all_max_lon, all_max_lat = 180, 90, -180, -90
     global_min_zoom, global_max_zoom = 99, 0
     first_metadata = {}
@@ -93,10 +96,10 @@ def merge_mbtiles(inputs, output):
         try:
             count = src.execute("SELECT COUNT(*) FROM tiles").fetchone()[0]
             tile_counts[path] = count
-            print(f"  {os.path.basename(path):40s}  {count:>9,} tiles")
+            print(f"  {os.path.basename(path):50s}  {count:>9,} tiles")
         except sqlite3.OperationalError:
             tile_counts[path] = 0
-            print(f"  {os.path.basename(path):40s}  (no tiles table)")
+            print(f"  {os.path.basename(path):50s}  (no tiles table)")
 
         src.close()
 
@@ -109,10 +112,11 @@ def merge_mbtiles(inputs, output):
             merged_bounds = f"{all_min_lon},{all_min_lat},{all_max_lon},{all_max_lat}"
             first_metadata["bounds"] = merged_bounds
             print(f"  Merged bounds:  {merged_bounds}")
-            center_lon  = (all_min_lon + all_max_lon) / 2
-            center_lat  = (all_min_lat + all_max_lat) / 2
-            center_zoom = global_min_zoom if global_min_zoom < 99 else 0
-            first_metadata["center"] = f"{center_lon},{center_lat},{center_zoom}"
+            first_metadata["center"] = (
+                f"{(all_min_lon+all_max_lon)/2},"
+                f"{(all_min_lat+all_max_lat)/2},"
+                f"{global_min_zoom if global_min_zoom < 99 else 0}"
+            )
 
         if global_min_zoom < 99:
             first_metadata["minzoom"] = str(global_min_zoom)
@@ -130,30 +134,31 @@ def merge_mbtiles(inputs, output):
         print("  WARNING: No metadata found in any input file.")
     print()
 
-    # --- Copy tiles with live progress bar ---
-    def show_progress(grand_done, total_tiles, file_done, file_total, path, elapsed):
-        pct       = grand_done / total_tiles * 100 if total_tiles else 0
-        rate      = file_done / elapsed if elapsed > 0 else 0
-        remaining = (file_total - file_done) / rate if rate > 0 else 0
-        bar_len   = 28
-        filled    = int(bar_len * pct / 100)
-        bar       = '█' * filled + '░' * (bar_len - filled)
+    # --- Copy tiles ---
+    # SPEED: executemany() with batches is significantly faster than
+    # individual execute() calls. Single BEGIN...COMMIT avoids the overhead
+    # of committing every N rows. Index is built after all data is loaded.
+    BATCH_SIZE = 10_000
+    grand_done = 0
+    t_start    = time.time()
+    last_print = time.time()
+
+    def show_progress(done, total, rate, eta):
+        pct    = done / total * 100 if total else 0
+        filled = int(28 * pct / 100)
+        bar    = '█' * filled + '░' * (28 - filled)
         sys.stdout.write(
-            f"\r  [{bar}] {pct:5.1f}%  "
-            f"{grand_done:,}/{total_tiles:,}  "
-            f"{rate:,.0f} t/s  "
-            f"ETA {int(remaining)}s"
-            "     "
+            f"\r  [{bar}] {pct:5.1f}%  {done:,}/{total:,}  "
+            f"{rate:,.0f} t/s  ETA {int(eta)}s     "
         )
         sys.stdout.flush()
 
-    grand_done = 0
+    cur.execute("BEGIN")
 
     for path in inputs:
         file_total = tile_counts.get(path, 0)
         file_done  = 0
-        t0         = time.time()
-
+        t_file     = time.time()
         print(f"Copying: {os.path.basename(path)}  ({file_total:,} tiles)")
 
         try:
@@ -163,41 +168,75 @@ def merge_mbtiles(inputs, output):
             continue
 
         try:
+            batch = []
             for row in src.execute(
                 "SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles"
             ):
-                cur.execute("INSERT OR REPLACE INTO tiles VALUES (?,?,?,?)", tuple(row))
+                batch.append(tuple(row))
                 file_done  += 1
                 grand_done += 1
 
-                if file_done % 500 == 0:
-                    show_progress(grand_done, total_tiles, file_done,
-                                  file_total, path, time.time() - t0)
-                if grand_done % 1000 == 0:
-                    con.commit()
+                if len(batch) >= BATCH_SIZE:
+                    cur.executemany(
+                        "INSERT OR REPLACE INTO tiles VALUES (?,?,?,?)", batch
+                    )
+                    batch = []
+
+                    # Throttle progress to once per second — flush is slow on Windows
+                    now = time.time()
+                    if now - last_print >= 1.0:
+                        last_print = now
+                        elapsed = now - t_start
+                        rate    = grand_done / elapsed if elapsed > 0 else 0
+                        eta     = (total_tiles - grand_done) / rate if rate > 0 else 0
+                        show_progress(grand_done, total_tiles, rate, eta)
+
+            # flush remaining batch
+            if batch:
+                cur.executemany(
+                    "INSERT OR REPLACE INTO tiles VALUES (?,?,?,?)", batch
+                )
 
         except sqlite3.OperationalError:
             print(f"\n  WARNING: No tiles table in {os.path.basename(path)}")
         finally:
             src.close()
-            con.commit()
 
-        elapsed = time.time() - t0
-        show_progress(grand_done, total_tiles, file_done,
-                      file_total, path, elapsed if elapsed > 0 else 0.001)
-        rate = file_done / elapsed if elapsed > 0 else 0
-        print(f"\n  Done: {file_done:,} tiles in {elapsed:.1f}s  ({rate:,.0f} t/s)\n")
+        elapsed_file = time.time() - t_file
+        rate_file    = file_done / elapsed_file if elapsed_file > 0 else 0
+        elapsed_all  = time.time() - t_start
+        rate_all     = grand_done / elapsed_all if elapsed_all > 0 else 0
+        eta          = (total_tiles - grand_done) / rate_all if rate_all > 0 else 0
+        show_progress(grand_done, total_tiles, rate_all, eta)
+        print(f"\n  Done: {file_done:,} tiles in {elapsed_file:.1f}s  ({rate_file:,.0f} t/s)\n")
+
+    # Commit all tiles then build the index once — much faster than
+    # maintaining the index incrementally during insert
+    print("Committing...", end=' ', flush=True)
+    con.execute("COMMIT")
+    print("done")
+
+    print("Building tile index...", end=' ', flush=True)
+    con.executescript(
+        "CREATE UNIQUE INDEX IF NOT EXISTS tile_index "
+        "ON tiles (zoom_level, tile_column, tile_row);"
+    )
+    print("done")
 
     con.close()
-    print(f"{'='*60}")
-    print(f"Merge complete — {grand_done:,} total tiles written to {output}")
+
+    elapsed = time.time() - t_start
+    rate    = grand_done / elapsed if elapsed > 0 else 0
+    print(f"\n{'='*60}")
+    print(f"  Merge complete")
+    print(f"  Tiles   : {grand_done:,}")
+    print(f"  Time    : {elapsed:.1f}s  ({rate:,.0f} t/s avg)")
+    print(f"  Output  : {output}")
     print(f"{'='*60}")
 
 
 # ── Entry point ───────────────────────────────────────────────────
 if __name__ == "__main__":
-    import glob
-
     args = sys.argv[1:]
 
     if len(args) == 0:
