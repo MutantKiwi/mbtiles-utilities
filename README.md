@@ -260,7 +260,8 @@ gdal_translate merged.mbtiles merged.tif -of COG -co COMPRESS=DEFLATE
 - [pmtiles Python library](https://pypi.org/project/pmtiles/) — PMTiles reader used by these scripts
 - [GDAL](https://gdal.org/) — geospatial format conversion including MBTiles → GeoTIFF
 - [DB Browser for SQLite](https://sqlitebrowser.org/) — inspect MBTiles files directly as SQLite databases
-
+- [MARTIN](https://maplibre.org/martin/mbtiles/) — anther MBTiles tool
+- [MBTiles spec](https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md) — MBTiles spec
 ---
 
 ## Licence
