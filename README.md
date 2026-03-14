@@ -27,7 +27,7 @@ pip install pmtiles
 
 ## merge-mbtiles.py
 
-**[View script](https://github.com/MutantKiwi/mbtiles-utilities/tree/main/merge-mbtiles)**
+**[View script](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/merge-mbtiles.py)**
 
 Merges multiple MBTiles files into a single output file. Metadata bounds and zoom ranges are automatically expanded to cover all inputs. Where tiles overlap, later files take precedence.
 
