@@ -75,7 +75,7 @@ Done — 42119 total tiles written to merged.mbtiles
 
 ## export-metadata.py
 
-**[View script](https://github.com/MutantKiwi/mbtiles-utilities/tree/main/export-metadata)**
+**[View script](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/export-metadata.py)**
 
 Scans a folder for MBTiles and PMTiles files and exports their metadata into a single CSV file. Each file becomes one row. Standard fields always appear as columns in a fixed order, even if empty.
 
