@@ -11,6 +11,7 @@ A collection of Python utilities for managing, merging, and editing metadata in 
 | [`merge-mbtiles.py`](#merge-mbtilespy) | Merge multiple MBTiles files into one |
 | [`export-metadata.py`](#export-metadatapy) | Export metadata from MBTiles/PMTiles files to CSV |
 | [`update-metadata.py`](#update-metadatapy) | Write metadata changes from a CSV back into MBTiles files |
+| [`mbtiles-S3-viewer.html`](#mbtiles-s3-viewerhtml) | Self-contained tile viewer for S3-hosted XYZ archives |
 
 ---
 
@@ -222,6 +223,38 @@ Done.
 
 ---
 
+## mbtiles-S3-viewer.html
+
+**[View file](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/mbtiles-S3-viewer.html)** · **[Full documentation](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/mbtiles-S3-viewer-README.md)**
+
+A single-file tile viewer for browsing XYZ tile archives hosted on S3 or any static file host. Drop it into the same bucket as your tiles and it works immediately — no server, no build step, no API keys.
+
+The viewer reads `index.json` (standard TileJSON) from the same folder and presents all tilesets in a searchable sidebar with live interactive previews.
+
+### Deployment
+
+```
+your-bucket/
+├── mbtiles-S3-viewer.html   ← rename to index.html
+├── index.json               ← TileJSON array describing your tilesets
+├── Map Sheet A/{z}/{x}/{y}.png
+└── Map Sheet B/{z}/{x}/{y}.png
+```
+
+Upload `mbtiles-S3-viewer.html` (rename to `index.html`) alongside your `index.json` and tile folders. Ensure the bucket has public read access and a CORS policy allowing `GET` requests.
+
+### Features
+
+- **Five live map frameworks** — Leaflet, OpenLayers, MapLibre GL JS, Esri 2D MapView, Esri 3D SceneView
+- **Download** — generates a clean standalone HTML viewer for any framework
+- **Opacity slider**, full-screen button, one-click XYZ URL copy
+- **Dark / light theme** toggle with localStorage persistence
+- Zero external dependencies at runtime — all libraries loaded from public CDNs
+
+See [`mbtiles-S3-viewer-README.md`](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/mbtiles-S3-viewer-README.md) for full configuration, theming, and deployment details.
+
+---
+
 ## Typical full workflow
 
 ```bash
@@ -260,8 +293,9 @@ gdal_translate merged.mbtiles merged.tif -of COG -co COMPRESS=DEFLATE
 - [pmtiles Python library](https://pypi.org/project/pmtiles/) — PMTiles reader used by these scripts
 - [GDAL](https://gdal.org/) — geospatial format conversion including MBTiles → GeoTIFF
 - [DB Browser for SQLite](https://sqlitebrowser.org/) — inspect MBTiles files directly as SQLite databases
-- [MARTIN](https://maplibre.org/martin/mbtiles/) — anther MBTiles tool
+- [MARTIN](https://maplibre.org/martin/mbtiles/) — another MBTiles tool
 - [MBTiles spec](https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md) — MBTiles spec
+
 ---
 
 ## Licence
