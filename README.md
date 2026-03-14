@@ -140,7 +140,7 @@ Exported 3 file(s) to: metadata_export.csv
 
 ## update-metadata.py
 
-**[View script](https://github.com/MutantKiwi/mbtiles-utilities/tree/main/update-metadata)**
+**[View script](https://github.com/MutantKiwi/mbtiles-utilities/blob/main/update-metadata.py)**
 
 Reads a CSV produced by `export-metadata.py` and writes selected metadata changes back into the corresponding MBTiles files. Only the permitted fields are ever modified — all other columns in the CSV are silently ignored.
 
