@@ -53,6 +53,7 @@ python merge-mbtiles.py file1.mbtiles file2.mbtiles file3.mbtiles output.mbtiles
 - `INSERT OR REPLACE` tile strategy — later files win on overlap
 - Commits every 1000 tiles so partial output is usable if interrupted
 - Gracefully skips files missing a `metadata` or `tiles` table
+- Progress bar
 - Prints per-file tile counts and a final summary
 
 ### Example output
