@@ -33,7 +33,9 @@ STANDARD_FIELDS = [
     "profile",
     "scheme",
     "generator",
+    "date",             # YYYYMMDD — written by update-metadata.py, read here if present
 ]
+
 
 def get_tile_format(tile_type):
     """Resolve TileType enum or integer to a format string."""
@@ -45,8 +47,10 @@ def read_mbtiles_metadata(path):
     """
     Extract metadata from an MBTiles (SQLite) file.
     All standard fields are included (empty string if not present).
+    Any non-standard fields found in the metadata table are appended
+    as extra columns at the end of the CSV.
     """
-    # Start with all standard fields defaulting to empty string
+    # Start with file-level info
     meta = {
         "source_file":  os.path.basename(path),
         "source_type":  "mbtiles",
@@ -61,8 +65,8 @@ def read_mbtiles_metadata(path):
     con.row_factory = sqlite3.Row
 
     # Read all key/value pairs from the metadata table.
-    # Any standard field found will overwrite the empty default.
-    # Any non-standard field will be appended as an extra column.
+    # Standard fields are overwritten with the actual value.
+    # Non-standard fields are added as extra columns.
     try:
         for row in con.execute("SELECT name, value FROM metadata"):
             meta[row["name"]] = row["value"]
@@ -98,12 +102,14 @@ def read_pmtiles_metadata(path):
     Maps PMTiles header fields onto the same standard field names
     used by MBTiles so the CSV columns align between both formats.
     """
-    # Pre-populate every standard field so columns always exist in the CSV
+    # Start with file-level info
     meta = {
         "source_file":  os.path.basename(path),
         "source_type":  "pmtiles",
         "file_size_mb": round(os.path.getsize(path) / 1024 / 1024, 3),
     }
+
+    # Pre-populate every standard field so columns always exist in the CSV
     for field in STANDARD_FIELDS:
         meta[field] = ""
 
@@ -134,8 +140,11 @@ def read_pmtiles_metadata(path):
         max_lat = header.get("max_lat_e7", 0) / 1e7
         meta["bounds"] = f"{min_lon},{min_lat},{max_lon},{max_lat}"
 
-        # PMTiles uses "scheme" implicitly (always xyz), make it explicit
+        # PMTiles uses XYZ scheme implicitly — make it explicit
         meta["scheme"] = "xyz"
+
+        # PMTiles has no date field — set empty so the CSV column is consistent
+        meta["date"] = ""
 
         # --- PMTiles-specific fields (no MBTiles equivalent) ---
         center_lon  = header.get("center_lon_e7", 0) / 1e7
@@ -204,8 +213,8 @@ def export_metadata_to_csv(folder_path, output_csv="metadata_export.csv"):
         except Exception as e:
             print(f"  ERR  {filename}: {e}")
             errors.append({
-                "source_file": filename,
-                "source_type": ext,
+                "source_file":    filename,
+                "source_type":    ext,
                 "metadata_error": str(e),
             })
 
@@ -242,9 +251,9 @@ def export_metadata_to_csv(folder_path, output_csv="metadata_export.csv"):
 
 # --- Entry point ---
 # Usage:
-#   python export_metadata.py                        ← scans current folder
-#   python export_metadata.py "C:\path\to\folder"   ← scans given folder
-#   python export_metadata.py "C:\path\to\folder" out.csv
+#   python export-metadata.py                        ← scans current folder
+#   python export-metadata.py "C:\path\to\folder"   ← scans given folder
+#   python export-metadata.py "C:\path\to\folder" out.csv
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
@@ -262,5 +271,5 @@ if __name__ == "__main__":
         export_metadata_to_csv(sys.argv[1], sys.argv[2])
 
     else:
-        print("Usage: python export_metadata.py [folder] [output.csv]")
+        print("Usage: python export-metadata.py [folder] [output.csv]")
         sys.exit(1)
